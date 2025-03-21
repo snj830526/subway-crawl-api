@@ -1,6 +1,5 @@
 const express = require('express');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args)); // ✅ 이 줄 추가
-const fetch = require('node-fetch');
 const app = express();
 
 app.get('/', async (req, res) => {

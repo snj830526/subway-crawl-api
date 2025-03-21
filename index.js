@@ -20,6 +20,12 @@ app.get('/', async (req, res) => {
   });
 
   const html = await response.text();
+
+  // ✅ 응답 내용 콘솔에 출력
+  console.log('🔍 HTML 응답 시작 ----------------------');
+  console.log(html.slice(0, 1000)); // 너무 길지 않게 앞 1000자만
+  console.log('🔍 HTML 응답 끝 ------------------------');
+
   const rows = [...html.matchAll(/<div class="train_row">([\s\S]*?)<\/div>/g)].map(m =>
     m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
   );

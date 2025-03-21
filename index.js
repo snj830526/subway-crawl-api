@@ -1,37 +1,50 @@
-const express = require('express');
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args)); // ✅ 이 줄 추가
+import express from 'express';
+import puppeteer from 'puppeteer';
+
 const app = express();
 
 app.get('/', async (req, res) => {
-  const formData = new URLSearchParams();
-  formData.append('line', '2');
-  formData.append('isCb', 'N');
+  const station = decodeURIComponent(req.query.station || '강남'); // ex: ?station=강남
 
-  const response = await fetch('https://smss.seoulmetro.co.kr/traininfo/traininfoUserMap.do', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Referer': 'https://smss.seoulmetro.co.kr/traininfo/traininfoUserView.do',
-      'Origin': 'https://smss.seoulmetro.co.kr',
-      'X-Requested-With': 'XMLHttpRequest',
-      'User-Agent': 'Mozilla/5.0'
-    },
-    body: formData.toString()
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
-  const html = await response.text();
+  const page = await browser.newPage();
+  await page.goto('https://smss.seoulmetro.co.kr/traininfo/traininfoUserView.do', {
+    waitUntil: 'networkidle0'
+  });
 
-  // ✅ 응답 내용 콘솔에 출력
-  console.log('🔍 HTML 응답 시작 ----------------------');
-  console.log(html.slice(0, 1000)); // 너무 길지 않게 앞 1000자만
-  console.log('🔍 HTML 응답 끝 ------------------------');
+  // 🔄 2호선 클릭 & 대기 (기본값)
+  await page.evaluate(() => {
+    lineChange('2');
+  });
+  await page.waitForTimeout(2500); // 페이지 렌더링 대기
 
-  const rows = [...html.matchAll(/<div class="train_row">([\s\S]*?)<\/div>/g)].map(m =>
-    m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-  );
+  const html = await page.content();
 
-  res.json({ station: '강남', results: rows });
+  await browser.close();
+
+  // 🔍 `station`이 포함된 열차 행만 추출
+  const rows = [...html.matchAll(/<div class="train_row">([\s\S]*?)<\/div>/g)];
+
+  const result = rows.map((m) => {
+    const clean = m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    return clean;
+  }).filter(text => text.includes(station));
+
+  // ⏩ 가장 가까운 열차 1개만 반환
+  const nearest = result[0] || '해당 역의 열차 정보를 찾을 수 없습니다.';
+
+  res.json({
+    station,
+    result: result.length,
+    nearest
+  });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚇 Server running on port ${PORT}`));
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`🚇 Server running on http://localhost:${port}`);
+});

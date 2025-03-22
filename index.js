@@ -4,44 +4,51 @@ import puppeteer from 'puppeteer';
 const app = express();
 
 app.get('/', async (req, res) => {
-  const station = decodeURIComponent(req.query.station || '강남'); // ex: ?station=강남
+  try {
+    const stationRaw = req.query.station || '강남';
+    const station = decodeURIComponent(stationRaw.trim());
+    const line = req.query.line || '2'; // ex: ?line=2
 
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
 
-  const page = await browser.newPage();
-  await page.goto('https://smss.seoulmetro.co.kr/traininfo/traininfoUserView.do', {
-    waitUntil: 'networkidle0'
-  });
+    const page = await browser.newPage();
 
-  // 🔄 2호선 클릭 & 대기 (기본값)
-  await page.evaluate(() => {
-    lineChange('2');
-  });
-  await page.waitForTimeout(2500); // 페이지 렌더링 대기
+    await page.goto('https://smss.seoulmetro.co.kr/traininfo/traininfoUserView.do', {
+      waitUntil: 'networkidle0',
+    });
 
-  const html = await page.content();
+    // 노선 선택
+    await page.evaluate((line) => {
+      lineChange(line); // 페이지 내에 있는 JS 함수 호출
+    }, line);
 
-  await browser.close();
+    // 페이지 렌더링 대기
+    await page.waitForTimeout(2500);
 
-  // 🔍 `station`이 포함된 열차 행만 추출
-  const rows = [...html.matchAll(/<div class="train_row">([\s\S]*?)<\/div>/g)];
+    // 브라우저 내부에서 필요한 데이터만 추출
+    const result = await page.evaluate((station) => {
+      const rows = Array.from(document.querySelectorAll('.train_row'));
+      return rows
+        .map((row) => row.textContent.trim().replace(/\s+/g, ' '))
+        .filter((text) => text.includes(station));
+    }, station);
 
-  const result = rows.map((m) => {
-    const clean = m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-    return clean;
-  }).filter(text => text.includes(station));
+    await browser.close();
 
-  // ⏩ 가장 가까운 열차 1개만 반환
-  const nearest = result[0] || '해당 역의 열차 정보를 찾을 수 없습니다.';
-
-  res.json({
-    station,
-    result: result.length,
-    nearest
-  });
+    // 가장 가까운 열차 1개만 반환
+    res.json({
+      station,
+      line,
+      result: result.length,
+      nearest: result[0] || '해당 역의 열차 정보를 찾을 수 없습니다.',
+    });
+  } catch (e) {
+    console.error('🚨 오류 발생:', e);
+    res.status(500).json({ error: '데이터를 불러오는 데 실패했어요.' });
+  }
 });
 
 const port = process.env.PORT || 3000;
